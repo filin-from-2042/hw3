@@ -16,7 +16,7 @@ public class WikiClient {
     public static final String WIKI = "/wiki/";
     public static final String EN_WIKI_URL = "https://en.wikipedia.org" + WIKI;
     private long lastRequest;
-    private final long RATE_LIMITER = TimeUnit.NANOSECONDS.convert(200, TimeUnit.MILLISECONDS);
+    private final long RATE_LIMITER = TimeUnit.NANOSECONDS.convert(100, TimeUnit.MILLISECONDS);
     private final Lock lock = new ReentrantLock();
 
     public Set<String> getByTitle(String title) throws IOException, InterruptedException {

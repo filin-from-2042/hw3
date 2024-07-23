@@ -1,42 +1,34 @@
 package org.example;
 
-import lombok.AllArgsConstructor;
-
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 import static java.lang.String.join;
 
 
-public class SingleThreadCrawler {
+public class MultiThreadCrawler {
 
     public static void main(String[] args) throws Exception {
-        SingleThreadCrawler crawler = new SingleThreadCrawler();
+        MultiThreadCrawler crawler = new MultiThreadCrawler();
 
         long startTime = System.nanoTime();
-        String result = crawler.find("Java_(programming_language)", "Quantification_(science)", 5, TimeUnit.MINUTES);
+        String result = crawler.find("Java_(programming_language)", "TiVo_Inc.", 5, TimeUnit.MINUTES);
         long finishTime = TimeUnit.SECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
 
         System.out.println("Took " + finishTime + " seconds, result is: " + result);
     }
 
-    private final PriorityBlockingQueue<Node> searchQueue = new PriorityBlockingQueue<>();
-
-    private final Set<String> visited = new HashSet<>();
+    private final VisitPriorityQueue searchQueue = new VisitPriorityQueue();
 
     private final WikiClient client = new WikiClient();
 
-    private final Lock lock = new ReentrantLock();
-
     public String find(String from, String target, long timeout, TimeUnit timeUnit) throws Exception {
         long deadline = System.nanoTime() + timeUnit.toNanos(timeout);
-        searchQueue.add(new Node(from, null, 0));
+        searchQueue.enq(new WikiNode(from, null, 0));
 
-        AtomicReference<Node> result = new AtomicReference<>(null);
+        AtomicReference<WikiNode> result = new AtomicReference<>(null);
 
         for (int index = 0; index < 10; index++) {
             Thread thread = new Thread(new Task(deadline, target, result, this));
@@ -50,13 +42,13 @@ public class SingleThreadCrawler {
         }
 
         List<String> resultList = new ArrayList<>();
-        Node search = result.get();
+        WikiNode search = result.get();
         while (true) {
-            resultList.add(search.title);
-            if (search.next == null) {
+            resultList.add(search.getTitle());
+            if (search.getNext() == null) {
                 break;
             }
-            search = search.next;
+            search = search.getNext();
         }
         Collections.reverse(resultList);
 
@@ -66,10 +58,10 @@ public class SingleThreadCrawler {
     private class Task implements Runnable {
         private final long deadline;
         private final String target;
-        private final AtomicReference<Node> result;
-        private final SingleThreadCrawler starter;
+        private final AtomicReference<WikiNode> result;
+        private final MultiThreadCrawler starter;
 
-        public Task(long deadline, String target, AtomicReference<Node> result, SingleThreadCrawler starter) {
+        public Task(long deadline, String target, AtomicReference<WikiNode> result, MultiThreadCrawler starter) {
             this.deadline = deadline;
             this.target = target;
             this.result = result;
@@ -83,16 +75,16 @@ public class SingleThreadCrawler {
                     if (deadline < System.nanoTime()) {
                         throw new TimeoutException();
                     }
-                    Node node = searchQueue.take();
+                    WikiNode node = searchQueue.deq();
 
                     Set<String> links;
-                    links = client.getByTitle(node.title);
+                    links = client.getByTitle(node.getTitle());
                     if (links.isEmpty()) {
                         //pageNotFound
                         return;
                     }
                     for (String link : links) {
-                        Node subNode = new Node(link, node, node.depth + 1);
+                        WikiNode subNode = new WikiNode(link, node, node.getDepth() + 1);
                         if (target.equalsIgnoreCase(link)) {
                             result.set(subNode);
                             synchronized (starter) {
@@ -101,36 +93,12 @@ public class SingleThreadCrawler {
                             return;
                         }
 
-                        String currentLink = link.toLowerCase();
-                        try {
-                            lock.lock();
-                            if (visited.contains(currentLink)) {
-                                continue;
-                            }
-                            visited.add(currentLink);
-
-                        } finally {
-                            lock.unlock();
-                        }
-
-                        searchQueue.add(subNode);
+                        searchQueue.enq(subNode);
                     }
                 }
             } catch (IOException | TimeoutException | InterruptedException e) {
                 e.printStackTrace();
             }
-        }
-    }
-
-    @AllArgsConstructor
-    private static class Node implements Comparable<Node> {
-        String title;
-        Node next;
-        Integer depth;
-
-        @Override
-        public int compareTo(Node o) {
-            return Integer.compare(this.depth, o != null ? o.depth : 0);
         }
     }
 }
